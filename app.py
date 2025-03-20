@@ -45,6 +45,12 @@ def home():
     try:
         # Get user session data
         user = session.get("user", None)
+
+        # If on Render and no user session, redirect to login
+        if not IS_LOCAL and not user:
+            return redirect(url_for("login"))
+
+        # Email from session (if available)
         email = user.get("userinfo", {}).get("email", "Not logged in") if user else "Not logged in"
         print(f"Logged in as: {email}")
 
@@ -64,7 +70,7 @@ def home():
             scatter_data_json = []
             print("No 'Packet_Length' or 'Timestamp' columns found.")
 
-        # Pass 'is_render' flag to template to control login visibility and show data always
+        # Pass 'is_render' flag to template to control login visibility and show data only if logged in
         return render_template("index.html", columns=df.columns, data=data, scatter_data=scatter_data_json, email=email, is_render=not IS_LOCAL)
 
     except Exception as e:
