@@ -1,43 +1,70 @@
+import os
 import json
-from flask import Flask, render_template
 import pandas as pd
+from flask import Flask, render_template, redirect, url_for, session
+from authlib.integrations.flask_client import OAuth
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
+
+# Load secret key and OAuth credentials from environment variables
+app.secret_key = os.getenv("SECRET_KEY", "your_default_secret_key")
+OAUTH_CLIENT_ID = os.getenv("OAUTH_CLIENT_ID")
+OAUTH_CLIENT_SECRET = os.getenv("OAUTH_CLIENT_SECRET")
+
+# Check if essential environment variables are set
+if not OAUTH_CLIENT_ID or not OAUTH_CLIENT_SECRET:
+    print("Error: OAuth credentials are missing in .env file.")
+    exit(1)  # Exit the application if credentials are missing
+
+# Initialize OAuth
+oauth = OAuth(app)
+google = oauth.register(
+    name='google',
+    client_id=OAUTH_CLIENT_ID,
+    client_secret=OAUTH_CLIENT_SECRET,
+    access_token_url='https://oauth2.googleapis.com/token',
+    authorize_url='https://accounts.google.com/o/oauth2/auth',
+    authorize_params={'scope': 'openid email profile'},
+    client_kwargs={},
+)
 
 @app.route("/")
 def home():
     # Load analyzed data
     df = pd.read_csv("analyzed_data.csv")
-
-    # Debugging: Check the unique values in the 'Anomaly' column to ensure 'Anomaly' is present
-    print("Unique values in Anomaly column:", df['Anomaly'].unique())  # Debugging: check Anomaly values
-
-    # Convert DataFrame to list of dictionaries for HTML rendering
+    print("Unique values in Anomaly column:", df['Anomaly'].unique())  # Debugging
     data = df.to_dict(orient="records")
 
-    # Ensure 'Packet_Length' and 'Timestamp' exist in the DataFrame
     if 'Packet_Length' in df.columns and 'Timestamp' in df.columns:
-        # Convert Packet_Length to numeric, in case it is not
         df['Packet_Length'] = pd.to_numeric(df['Packet_Length'], errors='coerce')
-
-        # Filter for anomalies and drop NaN values
         scatter_data = df[df['Anomaly'] == 'Anomaly'][['Packet_Length', 'Timestamp']].dropna()
-
-        # Debugging: Log scatter data before passing it to the template
-        print("Scatter Data being passed to template:", scatter_data)  # Debugging: check scatter data
-
-        # Convert Timestamp to UNIX timestamp (in milliseconds) for Chart.js compatibility
+        print("Scatter Data being passed to template:", scatter_data)  # Debugging
         scatter_data['Timestamp'] = pd.to_datetime(scatter_data['Timestamp']).apply(lambda x: x.timestamp() * 1000)
-
-        # Debugging: Check the converted Timestamp values
-        print("Converted Timestamps for Chart.js:", scatter_data['Timestamp'])  # Debugging: check Timestamp conversion
-
-        # Convert data into JSON for use in JavaScript
+        print("Converted Timestamps for Chart.js:", scatter_data['Timestamp'])  # Debugging
         scatter_data_json = scatter_data.to_dict(orient="records") if not scatter_data.empty else []
     else:
-        scatter_data_json = []  # Set empty list if columns are missing
+        scatter_data_json = []
 
     return render_template("index.html", columns=df.columns, data=data, scatter_data=scatter_data_json)
+
+@app.route("/login")
+def login():
+    return google.authorize_redirect(url_for("authorize", _external=True))
+
+@app.route("/authorize")
+def authorize():
+    token = google.authorize_access_token()
+    session["user"] = token
+    return redirect(url_for("home"))
+
+@app.route("/logout")
+def logout():
+    session.pop("user", None)
+    return redirect(url_for("home"))
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)

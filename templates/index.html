@@ -5,37 +5,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Network Packet Data</title>
-    
+
     <!-- Bootstrap CSS and Chart.js for styling and data visualization -->
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/moment.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment"></script>
-    
+
     <style>
         body {
             padding: 20px;
         }
-        
+
         table {
             margin-top: 20px;
         }
-        
+
         th, td {
             text-align: center;
             vertical-align: middle;
         }
-        
+
         .highlight {
             background-color: #ffdddd !important; /* Highlight anomaly rows */
         }
-        
-        /* Initially hide the scatter plot */
+
         #scatter-plot {
             display: none;
             margin-top: 30px;
         }
-        
+
         footer {
             margin-top: 30px;
         }
@@ -45,47 +44,63 @@
 <body>
     <div class="container">
         <h1 class="mb-4 text-center">Network Packet Data Report</h1>
-        <p class="text-center">Below is the analysis of the network packets:</p>
 
-        <!-- Toggle buttons for table and scatter plot -->
-        <div class="btn-group" role="group" aria-label="Data view toggle">
-            <button type="button" class="btn btn-primary" id="showTableBtn">Show Table</button>
-            <button type="button" class="btn btn-secondary" id="showPlotBtn">Show Scatter Plot</button>
+        <!-- OAuth Authentication Status -->
+        <div class="text-center mb-4">
+            {% if 'user' in session %}
+                <p>Logged in as: <strong>{{ session['user']['userinfo']['email'] }}</strong></p>
+                <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
+            {% else %}
+                <a href="{{ url_for('login') }}" class="btn btn-primary">Login with Google</a>
+            {% endif %}
         </div>
 
-        <!-- Display the table with the data -->
-        {% if data %}
-        <div class="table-responsive" id="tableView">
-            <table class="table table-striped table-bordered">
-                <thead class="thead-dark">
-                    <tr>
-                        {% for column in columns %}
-                        <th>{{ column }}</th>
-                        {% endfor %}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in data %}
-                    <tr class="{% if row['Anomaly'] == 'Anomaly' %}highlight{% endif %}">
-                        {% for column in columns %}
-                        <td>{{ row[column] }}</td>
-                        {% endfor %}
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+        <!-- Show Data Only If Logged In -->
+        {% if 'user' in session %}
+            <p class="text-center">Below is the analysis of the network packets:</p>
+
+            <!-- Toggle Buttons for Table and Scatter Plot -->
+            <div class="btn-group mb-3" role="group" aria-label="Data view toggle">
+                <button type="button" class="btn btn-primary" id="showTableBtn">Show Table</button>
+                <button type="button" class="btn btn-secondary" id="showPlotBtn">Show Scatter Plot</button>
+            </div>
+
+            <!-- Data Table -->
+            {% if data %}
+                <div class="table-responsive" id="tableView">
+                    <table class="table table-striped table-bordered">
+                        <thead class="thead-dark">
+                            <tr>
+                                {% for column in columns %}
+                                    <th>{{ column }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in data %}
+                                <tr class="{% if row['Anomaly'] == 'Anomaly' %}highlight{% endif %}">
+                                    {% for column in columns %}
+                                        <td>{{ row[column] }}</td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-danger text-center">No data available. Please ensure packets are being captured and analyzed.</p>
+            {% endif %}
+
+            <!-- Scatter Plot Section -->
+            <div id="scatter-plot" class="mt-4">
+                <h3 class="text-center">Anomaly Detection Scatter Plot</h3>
+                <canvas id="scatterChart"></canvas>
+            </div>
         {% else %}
-        <p class="text-danger text-center">No data available. Please ensure packets are being captured and analyzed.</p>
+            <p class="text-danger text-center">You must be logged in to view the network packet data.</p>
         {% endif %}
 
-        <!-- Scatter Plot Section -->
-        <div id="scatter-plot" class="mt-4">
-            <h3 class="text-center">Anomaly Detection Scatter Plot</h3>
-            <canvas id="scatterChart"></canvas>
-        </div>
-
-        <!-- Optional footer -->
+        <!-- Footer -->
         <footer class="text-center mt-4">
             <p>Generated by Flask Network Packet Analysis App</p>
         </footer>
@@ -112,7 +127,7 @@
                 x: row['Timestamp'],
                 y: row['Packet_Length']
             }));
-            
+
             const ctx = document.getElementById('scatterChart').getContext('2d');
             new Chart(ctx, {
                 type: 'scatter',
