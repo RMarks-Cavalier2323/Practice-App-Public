@@ -40,18 +40,23 @@ google = oauth.register(
 
 @app.route("/")
 def home():
-    df = pd.read_csv("analyzed_data.csv")
-    data = df.to_dict(orient="records")
+    try:
+        df = pd.read_csv("analyzed_data.csv")
+        data = df.to_dict(orient="records")
 
-    if 'Packet_Length' in df.columns and 'Timestamp' in df.columns:
-        df['Packet_Length'] = pd.to_numeric(df['Packet_Length'], errors='coerce')
-        scatter_data = df[df['Anomaly'] == 'Anomaly'][['Packet_Length', 'Timestamp']].dropna()
-        scatter_data['Timestamp'] = pd.to_datetime(scatter_data['Timestamp']).apply(lambda x: x.timestamp() * 1000)
-        scatter_data_json = scatter_data.to_dict(orient="records") if not scatter_data.empty else []
-    else:
-        scatter_data_json = []
+        if 'Packet_Length' in df.columns and 'Timestamp' in df.columns:
+            df['Packet_Length'] = pd.to_numeric(df['Packet_Length'], errors='coerce')
+            scatter_data = df[df['Anomaly'] == 'Anomaly'][['Packet_Length', 'Timestamp']].dropna()
+            scatter_data['Timestamp'] = pd.to_datetime(scatter_data['Timestamp']).apply(lambda x: x.timestamp() * 1000)
+            scatter_data_json = scatter_data.to_dict(orient="records") if not scatter_data.empty else []
+        else:
+            scatter_data_json = []
 
-    return render_template("index.html", columns=df.columns, data=data, scatter_data=scatter_data_json)
+        return render_template("index.html", columns=df.columns, data=data, scatter_data=scatter_data_json)
+    
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        return "Error loading data", 500
 
 @app.route("/login")
 def login():
@@ -59,9 +64,13 @@ def login():
 
 @app.route("/authorize")
 def authorize():
-    token = google.authorize_access_token()
-    session["user"] = token
-    return redirect(url_for("home"))
+    try:
+        token = google.authorize_access_token()
+        session["user"] = token
+        return redirect(url_for("home"))
+    except Exception as e:
+        print(f"OAuth authorization failed: {e}")
+        return "OAuth authorization failed", 500
 
 @app.route("/logout")
 def logout():
