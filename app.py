@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from flask import Flask, render_template, redirect, url_for, session
+from flask import Flask, render_template, redirect, url_for, session, request
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 
@@ -14,34 +14,26 @@ app.secret_key = os.getenv("SECRET_KEY", "your_default_secret_key")
 OAUTH_CLIENT_ID = os.getenv("OAUTH_CLIENT_ID")
 OAUTH_CLIENT_SECRET = os.getenv("OAUTH_CLIENT_SECRET")
 
-# Log the Client ID and Client Secret to make sure they are loaded correctly
-print(f"OAUTH_CLIENT_ID: {OAUTH_CLIENT_ID}")
-print(f"OAUTH_CLIENT_SECRET: {OAUTH_CLIENT_SECRET}")
+# Debugging: Log the Client ID (Never log secrets in production!)
+print(f"OAUTH_CLIENT_ID loaded: {bool(OAUTH_CLIENT_ID)}")
+print(f"OAUTH_CLIENT_SECRET loaded: {bool(OAUTH_CLIENT_SECRET)}")
 
 # Determine if app is running locally or on Render
 IS_LOCAL = os.getenv("LOCAL_DEV", "false").lower() == "true"
 
-# Set redirect URI based on environment (Render or Local)
-if IS_LOCAL:
-    REDIRECT_URI = "http://localhost:5000/authorize"  # Local development URL
-else:
-    REDIRECT_URI = "https://practice-app-ynj3.onrender.com/authorize"  # Render production URL
-
-JS_ORIGIN = REDIRECT_URI.split("/authorize")[0]
-
-# Debugging: Print the redirect URI
-print(f"Using redirect URI: {REDIRECT_URI}")
-
 # Initialize OAuth
 oauth = OAuth(app)
+
 google = oauth.register(
     name='google',
     client_id=OAUTH_CLIENT_ID,
     client_secret=OAUTH_CLIENT_SECRET,
     access_token_url='https://oauth2.googleapis.com/token',
     authorize_url='https://accounts.google.com/o/oauth2/auth',
-    authorize_params={'scope': 'openid email profile'},
-    client_kwargs={'redirect_uri': REDIRECT_URI},
+    client_kwargs={
+        'scope': 'openid email profile',
+    },
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration'  # Ensures correct jwks_uri
 )
 
 @app.route("/")
@@ -83,10 +75,10 @@ def home():
 
 @app.route("/login")
 def login():
-    # Only allow OAuth login if the app is running on Render
     if not IS_LOCAL:
-        print(f"Redirecting to Google OAuth with redirect URI: {REDIRECT_URI}")
-        return google.authorize_redirect(REDIRECT_URI)
+        redirect_uri = request.url_root + "authorize"  # Dynamically set redirect URI
+        print(f"Redirecting to Google OAuth with redirect URI: {redirect_uri}")
+        return google.authorize_redirect(redirect_uri)
     else:
         return redirect(url_for("home"))
 
@@ -96,7 +88,7 @@ def authorize():
         print("Attempting to authorize and retrieve the access token")
         token = google.authorize_access_token()
         session["user"] = token
-        print(f"Authorization successful, user session set: {session.get('user')}")
+        print(f"Authorization successful. User session set.")
         return redirect(url_for("home"))
     except Exception as e:
         print(f"OAuth authorization failed: {e}")
