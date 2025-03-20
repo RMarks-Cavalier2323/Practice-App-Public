@@ -1,11 +1,11 @@
 import os
 import json
 import pandas as pd
-from flask import Flask, render_template, redirect, url_for, session
+from flask import Flask, render_template, redirect, url_for, session, request
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
@@ -15,10 +15,16 @@ app.secret_key = os.getenv("SECRET_KEY", "your_default_secret_key")
 OAUTH_CLIENT_ID = os.getenv("OAUTH_CLIENT_ID")
 OAUTH_CLIENT_SECRET = os.getenv("OAUTH_CLIENT_SECRET")
 
-# Check if essential environment variables are set
-if not OAUTH_CLIENT_ID or not OAUTH_CLIENT_SECRET:
-    print("Error: OAuth credentials are missing in .env file.")
-    exit(1)  # Exit the application if credentials are missing
+# Determine if app is running locally or on Render
+IS_LOCAL = os.getenv("LOCAL_DEV", "false").lower() == "true"
+
+# Set correct redirect URI dynamically
+if IS_LOCAL:
+    REDIRECT_URI = "http://localhost:5000/authorize"
+    JS_ORIGIN = "http://localhost:5000"
+else:
+    REDIRECT_URI = "https://practice-app-ynj3.onrender.com/authorize"
+    JS_ORIGIN = "https://practice-app-ynj3.onrender.com"
 
 # Initialize OAuth
 oauth = OAuth(app)
@@ -29,22 +35,18 @@ google = oauth.register(
     access_token_url='https://oauth2.googleapis.com/token',
     authorize_url='https://accounts.google.com/o/oauth2/auth',
     authorize_params={'scope': 'openid email profile'},
-    client_kwargs={},
+    client_kwargs={'redirect_uri': REDIRECT_URI},
 )
 
 @app.route("/")
 def home():
-    # Load analyzed data
     df = pd.read_csv("analyzed_data.csv")
-    print("Unique values in Anomaly column:", df['Anomaly'].unique())  # Debugging
     data = df.to_dict(orient="records")
 
     if 'Packet_Length' in df.columns and 'Timestamp' in df.columns:
         df['Packet_Length'] = pd.to_numeric(df['Packet_Length'], errors='coerce')
         scatter_data = df[df['Anomaly'] == 'Anomaly'][['Packet_Length', 'Timestamp']].dropna()
-        print("Scatter Data being passed to template:", scatter_data)  # Debugging
         scatter_data['Timestamp'] = pd.to_datetime(scatter_data['Timestamp']).apply(lambda x: x.timestamp() * 1000)
-        print("Converted Timestamps for Chart.js:", scatter_data['Timestamp'])  # Debugging
         scatter_data_json = scatter_data.to_dict(orient="records") if not scatter_data.empty else []
     else:
         scatter_data_json = []
@@ -53,7 +55,7 @@ def home():
 
 @app.route("/login")
 def login():
-    return google.authorize_redirect(url_for("authorize", _external=True))
+    return google.authorize_redirect(REDIRECT_URI)
 
 @app.route("/authorize")
 def authorize():
