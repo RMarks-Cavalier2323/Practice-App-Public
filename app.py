@@ -14,6 +14,10 @@ app.secret_key = os.getenv("SECRET_KEY", "your_default_secret_key")
 OAUTH_CLIENT_ID = os.getenv("OAUTH_CLIENT_ID")
 OAUTH_CLIENT_SECRET = os.getenv("OAUTH_CLIENT_SECRET")
 
+# Log the Client ID and Client Secret to make sure they are loaded correctly
+print(f"OAUTH_CLIENT_ID: {OAUTH_CLIENT_ID}")
+print(f"OAUTH_CLIENT_SECRET: {OAUTH_CLIENT_SECRET}")
+
 # Determine if app is running locally or on Render
 IS_LOCAL = os.getenv("LOCAL_DEV", "false").lower() == "true"
 
