@@ -3,6 +3,7 @@ import pandas as pd
 from flask import Flask, render_template, redirect, url_for, session, request
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
+from flask_session import Session
 
 # Load environment variables
 load_dotenv()
@@ -21,19 +22,23 @@ print(f"OAUTH_CLIENT_SECRET loaded: {bool(OAUTH_CLIENT_SECRET)}")
 # Determine if app is running locally or on Render
 IS_LOCAL = os.getenv("LOCAL_DEV", "false").lower() == "true"
 
+# Configure Flask session storage
+app.config["SESSION_TYPE"] = "filesystem"  # Stores sessions on the server
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_USE_SIGNER"] = True
+Session(app)  # Initialize Flask-Session
+
 # Initialize OAuth
 oauth = OAuth(app)
 
 google = oauth.register(
-    name='google',
+    name="google",
     client_id=OAUTH_CLIENT_ID,
     client_secret=OAUTH_CLIENT_SECRET,
-    access_token_url='https://oauth2.googleapis.com/token',
-    authorize_url='https://accounts.google.com/o/oauth2/auth',
-    client_kwargs={
-        'scope': 'openid email profile',
-    },
-    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration'  # Ensures correct jwks_uri
+    access_token_url="https://oauth2.googleapis.com/token",
+    authorize_url="https://accounts.google.com/o/oauth2/auth",
+    client_kwargs={"scope": "openid email profile"},
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",  # Ensures correct jwks_uri
 )
 
 @app.route("/")
@@ -56,10 +61,10 @@ def home():
         data = df.to_dict(orient="records")
 
         # Scatter data processing
-        if 'Packet_Length' in df.columns and 'Timestamp' in df.columns:
-            df['Packet_Length'] = pd.to_numeric(df['Packet_Length'], errors='coerce')
-            scatter_data = df[df['Anomaly'] == 'Anomaly'][['Packet_Length', 'Timestamp']].dropna()
-            scatter_data['Timestamp'] = pd.to_datetime(scatter_data['Timestamp']).apply(lambda x: x.timestamp() * 1000)
+        if "Packet_Length" in df.columns and "Timestamp" in df.columns:
+            df["Packet_Length"] = pd.to_numeric(df["Packet_Length"], errors="coerce")
+            scatter_data = df[df["Anomaly"] == "Anomaly"][["Packet_Length", "Timestamp"]].dropna()
+            scatter_data["Timestamp"] = pd.to_datetime(scatter_data["Timestamp"]).apply(lambda x: x.timestamp() * 1000)
             scatter_data_json = scatter_data.to_dict(orient="records") if not scatter_data.empty else []
             print(f"Scatter data prepared with {len(scatter_data)} anomalies")
         else:
@@ -76,9 +81,14 @@ def home():
 @app.route("/login")
 def login():
     if not IS_LOCAL:
+        state = os.urandom(16).hex()  # Generate a random state
+        session["oauth_state"] = state  # Store state in session
         redirect_uri = request.url_root + "authorize"  # Dynamically set redirect URI
-        print(f"Redirecting to Google OAuth with redirect URI: {redirect_uri}")
-        return google.authorize_redirect(redirect_uri)
+
+        print(f"Generated OAuth state: {state}")
+        print(f"Redirecting to Google OAuth with URI: {redirect_uri}")
+
+        return google.authorize_redirect(redirect_uri, state=state)
     else:
         return redirect(url_for("home"))
 
@@ -86,9 +96,19 @@ def login():
 def authorize():
     try:
         print("Attempting to authorize and retrieve the access token")
+
+        expected_state = session.pop("oauth_state", None)  # Retrieve state from session
+        received_state = request.args.get("state")  # Get state from OAuth response
+
+        print(f"Expected state: {expected_state}, Received state: {received_state}")
+
+        if expected_state is None or received_state != expected_state:
+            raise ValueError("CSRF Warning! State does not match.")
+
         token = google.authorize_access_token()
         session["user"] = token
         print(f"Authorization successful. User session set.")
+
         return redirect(url_for("home"))
     except Exception as e:
         print(f"OAuth authorization failed: {e}")
