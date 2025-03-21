@@ -38,24 +38,28 @@ google = oauth.register(
     access_token_url="https://oauth2.googleapis.com/token",
     authorize_url="https://accounts.google.com/o/oauth2/auth",
     client_kwargs={"scope": "openid email profile"},
-    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",  # Ensures correct jwks_uri
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
 )
+
+# Allowed emails list
+ALLOWED_EMAILS = {"ryanmarks2121@gmail.com"}
 
 @app.route("/")
 def home():
     try:
-        # Get user session data
         user = session.get("user", None)
 
-        # If on Render and no user session, redirect to login
         if not IS_LOCAL and not user:
             return redirect(url_for("login"))
 
-        # Email from session (if available)
         email = user.get("userinfo", {}).get("email", "Not logged in") if user else "Not logged in"
         print(f"Logged in as: {email}")
 
-        # Load CSV data
+        # Restrict data access based on allowed emails
+        if email not in ALLOWED_EMAILS:
+            print("Unauthorized user attempted access")
+            return "Access Denied", 403
+
         df = pd.read_csv("analyzed_data.csv")
         print(f"Data loaded successfully with columns: {df.columns}")
         data = df.to_dict(orient="records")
@@ -71,7 +75,6 @@ def home():
             scatter_data_json = []
             print("No 'Packet_Length' or 'Timestamp' columns found.")
 
-        # Pass 'is_render' flag to template to control login visibility and show data only if logged in
         return render_template("index.html", columns=df.columns, data=data, scatter_data=scatter_data_json, email=email, is_render=not IS_LOCAL)
 
     except Exception as e:
@@ -81,9 +84,9 @@ def home():
 @app.route("/login")
 def login():
     if not IS_LOCAL:
-        state = os.urandom(16).hex()  # Generate a random state
-        session["oauth_state"] = state  # Store state in session
-        redirect_uri = request.url_root + "authorize"  # Dynamically set redirect URI
+        state = os.urandom(16).hex()
+        session["oauth_state"] = state
+        redirect_uri = request.url_root + "authorize"
 
         print(f"Generated OAuth state: {state}")
         print(f"Redirecting to Google OAuth with URI: {redirect_uri}")
@@ -97,8 +100,8 @@ def authorize():
     try:
         print("Attempting to authorize and retrieve the access token")
 
-        expected_state = session.pop("oauth_state", None)  # Retrieve state from session
-        received_state = request.args.get("state")  # Get state from OAuth response
+        expected_state = session.pop("oauth_state", None)
+        received_state = request.args.get("state")
 
         print(f"Expected state: {expected_state}, Received state: {received_state}")
 
@@ -106,8 +109,16 @@ def authorize():
             raise ValueError("CSRF Warning! State does not match.")
 
         token = google.authorize_access_token()
+        user_info = token.get("userinfo", {})
+        email = user_info.get("email")
+
+        if email not in ALLOWED_EMAILS:
+            print(f"Unauthorized login attempt by: {email}")
+            session.clear()
+            return "Access Denied: Unauthorized Email", 403
+
         session["user"] = token
-        print(f"Authorization successful. User session set.")
+        print(f"Authorization successful. Logged in as {email}")
 
         return redirect(url_for("home"))
     except Exception as e:
