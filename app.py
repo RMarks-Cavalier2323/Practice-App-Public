@@ -1,136 +1,73 @@
 import os
 import pandas as pd
-from flask import Flask, render_template, redirect, url_for, session, request
-from authlib.integrations.flask_client import OAuth
-from dotenv import load_dotenv
-from flask_session import Session
+from flask import Flask, render_template, session, redirect, url_for, g
+import logging
 
-# Load environment variables
-load_dotenv()
-
+# Configure Flask
 app = Flask(__name__)
+app.secret_key = os.urandom(24)
 
-# Load secret key and OAuth credentials from environment variables
-app.secret_key = os.getenv("SECRET_KEY", "your_default_secret_key")
-OAUTH_CLIENT_ID = os.getenv("OAUTH_CLIENT_ID")
-OAUTH_CLIENT_SECRET = os.getenv("OAUTH_CLIENT_SECRET")
+# Logger setup
+logging.basicConfig(level=logging.INFO)
 
-# Debugging: Log the Client ID (Never log secrets in production!)
-print(f"OAUTH_CLIENT_ID loaded: {bool(OAUTH_CLIENT_ID)}")
-print(f"OAUTH_CLIENT_SECRET loaded: {bool(OAUTH_CLIENT_SECRET)}")
-
-# Determine if app is running locally or on Render
-IS_LOCAL = os.getenv("LOCAL_DEV", "false").lower() == "true"
-
-# Configure Flask session storage
-app.config["SESSION_TYPE"] = "filesystem"  # Stores sessions on the server
-app.config["SESSION_PERMANENT"] = False
-app.config["SESSION_USE_SIGNER"] = True
-Session(app)  # Initialize Flask-Session
-
-# Initialize OAuth
-oauth = OAuth(app)
-
-google = oauth.register(
-    name="google",
-    client_id=OAUTH_CLIENT_ID,
-    client_secret=OAUTH_CLIENT_SECRET,
-    access_token_url="https://oauth2.googleapis.com/token",
-    authorize_url="https://accounts.google.com/o/oauth2/auth",
-    client_kwargs={"scope": "openid email profile"},
-    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-)
-
-# Allowed emails list
-ALLOWED_EMAILS = {"ryanmarks2121@gmail.com"}
-
-@app.route("/")
-def home():
+# Function to load data from CSV file
+def load_data():
     try:
-        user = session.get("user", None)
+        data = pd.read_csv("analyzed_data.csv")
+        logging.info(f"Data loaded successfully with columns: {data.columns}")
+        return data
+    except Exception as e:
+        logging.error(f"Error loading data from CSV: {e}")
+        return pd.DataFrame()  # Return empty DataFrame in case of error
 
-        if not IS_LOCAL and not user:
-            return redirect(url_for("login"))
+# Function to prepare scatter data
+def prepare_scatter_data(data):
+    if "Packet_Length" in data.columns and "Timestamp" in data.columns:
+        data["Packet_Length"] = pd.to_numeric(data["Packet_Length"], errors="coerce")
+        scatter_data = data[data["Anomaly"] == "Anomaly"][["Packet_Length", "Timestamp"]].dropna()
+        scatter_data["Timestamp"] = pd.to_datetime(scatter_data["Timestamp"]).apply(lambda x: x.timestamp() * 1000)
+        return scatter_data.to_dict(orient="records") if not scatter_data.empty else []
+    return []
 
-        email = user.get("userinfo", {}).get("email", "Not logged in") if user else "Not logged in"
-        print(f"Logged in as: {email}")
+# Route for the home page
+@app.route('/')
+def index():
+    try:
+        # Simulating local login status (can be replaced with actual authentication logic if needed)
+        g.is_local = True  # Change this flag if using an actual login system
+        
+        # Load data from the CSV file
+        data = load_data()
 
-        # Restrict data access based on allowed emails
-        if email not in ALLOWED_EMAILS:
-            print("Unauthorized user attempted access")
-            return "Access Denied", 403
+        if data.empty:
+            return "Error loading data", 500
 
-        df = pd.read_csv("analyzed_data.csv")
-        print(f"Data loaded successfully with columns: {df.columns}")
-        data = df.to_dict(orient="records")
+        # Prepare scatter data based on loaded data
+        scatter_data = prepare_scatter_data(data)
 
-        # Scatter data processing
-        if "Packet_Length" in df.columns and "Timestamp" in df.columns:
-            df["Packet_Length"] = pd.to_numeric(df["Packet_Length"], errors="coerce")
-            scatter_data = df[df["Anomaly"] == "Anomaly"][["Packet_Length", "Timestamp"]].dropna()
-            scatter_data["Timestamp"] = pd.to_datetime(scatter_data["Timestamp"]).apply(lambda x: x.timestamp() * 1000)
-            scatter_data_json = scatter_data.to_dict(orient="records") if not scatter_data.empty else []
-            print(f"Scatter data prepared with {len(scatter_data)} anomalies")
+        # Get column names for the table
+        columns = data.columns.tolist()
+
+        # Log the data for debugging
+        logging.info(f"Data: {data}")
+        logging.info(f"Scatter data: {scatter_data}")
+
+        # If user is local or logged in, render data
+        if g.is_local or 'user' in session:
+            return render_template('index.html', data=data.to_dict(orient='records'), columns=columns, scatter_data=scatter_data)
         else:
-            scatter_data_json = []
-            print("No 'Packet_Length' or 'Timestamp' columns found.")
-
-        return render_template("index.html", columns=df.columns, data=data, scatter_data=scatter_data_json, email=email, is_render=not IS_LOCAL)
+            return redirect(url_for('login'))
 
     except Exception as e:
-        print(f"Error loading data: {e}")
-        return "Error loading data", 500
+        logging.error(f"Error in index route: {e}")
+        return "Error occurred", 500
 
-@app.route("/login")
+# Simulating a login route (can be replaced with actual login logic)
+@app.route('/login')
 def login():
-    if not IS_LOCAL:
-        state = os.urandom(16).hex()
-        session["oauth_state"] = state
-        redirect_uri = request.url_root + "authorize"
+    # Simulate login logic here (or use OAuth if required)
+    return "Login Page (For demonstration purposes)"
 
-        print(f"Generated OAuth state: {state}")
-        print(f"Redirecting to Google OAuth with URI: {redirect_uri}")
-
-        return google.authorize_redirect(redirect_uri, state=state)
-    else:
-        return redirect(url_for("home"))
-
-@app.route("/authorize")
-def authorize():
-    try:
-        print("Attempting to authorize and retrieve the access token")
-
-        expected_state = session.pop("oauth_state", None)
-        received_state = request.args.get("state")
-
-        print(f"Expected state: {expected_state}, Received state: {received_state}")
-
-        if expected_state is None or received_state != expected_state:
-            raise ValueError("CSRF Warning! State does not match.")
-
-        token = google.authorize_access_token()
-        user_info = token.get("userinfo", {})
-        email = user_info.get("email")
-
-        if email not in ALLOWED_EMAILS:
-            print(f"Unauthorized login attempt by: {email}")
-            session.clear()
-            return "Access Denied: Unauthorized Email", 403
-
-        session["user"] = token
-        print(f"Authorization successful. Logged in as {email}")
-
-        return redirect(url_for("home"))
-    except Exception as e:
-        print(f"OAuth authorization failed: {e}")
-        return "OAuth authorization failed", 500
-
-@app.route("/logout")
-def logout():
-    print("Logging out user")
-    session.pop("user", None)
-    return redirect(url_for("home"))
-
+# Run the app
 if __name__ == "__main__":
-    print("Starting Flask app...")
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=True, host="0.0.0.0")
